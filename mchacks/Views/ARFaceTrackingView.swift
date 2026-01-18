@@ -157,7 +157,7 @@ struct ARFaceTrackingView: UIViewRepresentable {
         private let blinkThreshold: Float = 0.5
 
         private var calibratedNosePosition: SIMD3<Float>?
-        private let thresholdRadius: Float = 0.07 // 7cm threshold
+        private let thresholdRadius: Float = 0.10 // 10cm threshold
         private var outsideCircleStartTime: Date?
         private let outsideCircleDuration: TimeInterval = 2.0
         private var hasNotifiedOutside = false
@@ -594,7 +594,7 @@ struct ARFaceTrackingView: UIViewRepresentable {
             print("🔔 [Alert] This will be alert #\(nextAlertCount)")
 
             // 8th alert = Pit stop (skip regular audio, play pit stop audio instead)
-            if nextAlertCount == 8 {
+            if nextAlertCount == 4 {
                 print("🛑 [Alert] 8th alert - triggering pit stop instead of regular audio")
                 lastAlertTime = now
                 // Increment the count before notifying
@@ -609,7 +609,7 @@ struct ARFaceTrackingView: UIViewRepresentable {
             }
 
             // 13th alert = Emergency call (skip regular drowsiness audio, play emergency sound instead)
-            if nextAlertCount == 13 {
+            if nextAlertCount == 6 {
                 print("🚨 [Alert] 13th alert - triggering emergency call instead of regular audio")
                 lastAlertTime = now
                 // Increment the count before notifying

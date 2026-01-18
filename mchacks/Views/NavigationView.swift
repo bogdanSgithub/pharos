@@ -263,7 +263,8 @@ struct MainNavigationView: View {
             showEmergencyContactSetup = true
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TriggerEmergencyCall"))) { _ in
-            // Emergency calls are also tracked as alerts
+            // Dismiss rest stop sheet - emergency call takes priority
+            showQuickRestStop = false
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DrowsinessAlertPlayed"))) { _ in
             tripAlertCount += 1
@@ -287,6 +288,8 @@ struct MainNavigationView: View {
 
                 if newLevel == .critical {
                     // CRITICAL: Trigger emergency call (most severe intervention)
+                    // Dismiss rest stop sheet if showing - emergency takes priority
+                    showQuickRestStop = false
                     print("🚨 [Fatigue] CRITICAL level reached - triggering emergency call")
                     NotificationCenter.default.post(name: NSNotification.Name("TriggerEmergencyCall"), object: nil)
                 } else if newLevel == .moderate || newLevel == .high {
