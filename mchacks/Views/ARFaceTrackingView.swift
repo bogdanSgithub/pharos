@@ -438,8 +438,10 @@ struct ARFaceTrackingView: UIViewRepresentable {
             let currentStep = eyeState.calibrationStep
 
             // When advancing from step 1 to step 2, save the calibrated nose position
-            if currentStep == 1, let anchor = lastFaceAnchorForCalibration {
-                saveNosePosition(from: anchor)
+            if currentStep == 1,
+               let anchor = lastFaceAnchorForCalibration,
+               let cameraTransform = sceneView?.session.currentFrame?.camera.transform {
+                saveNosePosition(from: anchor, cameraTransform: cameraTransform)
             }
 
             DispatchQueue.main.async {
@@ -713,7 +715,11 @@ struct ARFaceTrackingView: UIViewRepresentable {
         }
         
         func calibrate(with faceAnchor: ARFaceAnchor) {
-            saveNosePosition(from: faceAnchor)
+            guard let cameraTransform = sceneView?.session.currentFrame?.camera.transform else {
+                print("⚠️ [Calibration] No camera transform available")
+                return
+            }
+            saveNosePosition(from: faceAnchor, cameraTransform: cameraTransform)
             saveZDistance(from: faceAnchor)
 
             DispatchQueue.main.async {
@@ -721,16 +727,22 @@ struct ARFaceTrackingView: UIViewRepresentable {
             }
         }
 
-        private func saveNosePosition(from faceAnchor: ARFaceAnchor) {
+        private func saveNosePosition(from faceAnchor: ARFaceAnchor, cameraTransform: simd_float4x4) {
             // Get nose tip in local space
             let noseVertex = faceAnchor.geometry.vertices[9]
 
-            // Convert to world space
+            // Convert to world space first
             let localPoint4 = SIMD4<Float>(noseVertex.x, noseVertex.y, noseVertex.z, 1.0)
             let worldPoint4 = faceAnchor.transform * localPoint4
-            let worldPosition = SIMD3<Float>(worldPoint4.x, worldPoint4.y, worldPoint4.z)
 
-            calibratedNosePosition = worldPosition
+            // Convert world space to camera space (camera-relative coordinates)
+            // This makes the position relative to the phone, not the world
+            let cameraInverse = simd_inverse(cameraTransform)
+            let cameraPoint4 = cameraInverse * worldPoint4
+            let cameraPosition = SIMD3<Float>(cameraPoint4.x, cameraPoint4.y, cameraPoint4.z)
+
+            calibratedNosePosition = cameraPosition
+            print("📍 [Calibration] Saved nose position in camera space: \(cameraPosition)")
         }
 
         /// Save baseline Z distance from phone to face at calibration
@@ -959,28 +971,35 @@ struct ARFaceTrackingView: UIViewRepresentable {
             }
             
             // MARK: - Position Tracking
-            if let calibratedPos = calibratedNosePosition {
-                // Get current nose position in world space
+            if let calibratedPos = calibratedNosePosition,
+               let sceneView = renderer as? ARSCNView,
+               let cameraTransform = sceneView.session.currentFrame?.camera.transform {
+                // Get current nose position in world space first
                 let noseVertex = faceAnchor.geometry.vertices[9]
                 let localPoint4 = SIMD4<Float>(noseVertex.x, noseVertex.y, noseVertex.z, 1.0)
                 let worldPoint4 = faceAnchor.transform * localPoint4
-                let currentWorldPos = SIMD3<Float>(worldPoint4.x, worldPoint4.y, worldPoint4.z)
-                
-                // Calculate offset from calibrated position
-                let offset = currentWorldPos - calibratedPos
-                
+
+                // Convert to camera-relative coordinates (same as calibration)
+                // This makes position relative to phone, so rotation doesn't affect it
+                let cameraInverse = simd_inverse(cameraTransform)
+                let cameraPoint4 = cameraInverse * worldPoint4
+                let currentCameraPos = SIMD3<Float>(cameraPoint4.x, cameraPoint4.y, cameraPoint4.z)
+
+                // Calculate offset from calibrated position (both in camera space now)
+                let offset = currentCameraPos - calibratedPos
+
                 // Normalize by threshold radius for UI display (-1 to 1)
                 let normalizedX = offset.x / thresholdRadius
                 let normalizedY = offset.y / thresholdRadius
-                
+
                 // Update UI state
                 DispatchQueue.main.async {
                     self.eyeState.noseOffsetX = normalizedX
                     self.eyeState.noseOffsetY = -normalizedY // Invert Y for screen coordinates
                 }
-                
+
                 // Calculate distance from calibrated position
-                let distance = simd_distance(currentWorldPos, calibratedPos)
+                let distance = simd_distance(currentCameraPos, calibratedPos)
                 let isOutside = distance > thresholdRadius
 
                 // MARK: - Looking Away Detection with Strike System
