@@ -44,10 +44,9 @@ struct MainNavigationView: View {
     @State private var tripAlertCount: Int = 0
     @State private var capturedTripData: TripData?
 
-    // MARK: - Hybrid Fatigue Monitoring
+    // MARK: - Rest Stop & Emergency
     @State private var showQuickRestStop = false
     @State private var restStopReason = ""
-    @State private var lastFatigueAlertLevel: FatigueLevel = .normal
     @State private var restStopAudioPlayer: AVAudioPlayer?
 
     var body: some View {
@@ -210,12 +209,7 @@ struct MainNavigationView: View {
             CompanionModeView(
                 isPresented: $showCompanionMode,
                 permissionManager: permissionManager,
-                onPauseAR: {
-                    NotificationCenter.default.post(name: NSNotification.Name("PauseARSession"), object: nil)
-                },
-                onResumeAR: {
-                    NotificationCenter.default.post(name: NSNotification.Name("ResumeARSession"), object: nil)
-                }
+                vapiManager: vapiManager
             )
         }
         .sheet(isPresented: $showCalibration) {
@@ -302,6 +296,16 @@ struct MainNavigationView: View {
                 }
 
                 lastFatigueAlertLevel = newLevel
+            print("🔔 [Alert] Count: \(tripAlertCount)")
+            // Note: 13th alert emergency is handled in ARFaceTrackingView.playAlert()
+        }
+        // Listen for 8th alert specifically (pit stop trigger - no regular audio)
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("PitStopAlertTriggered"))) { _ in
+            if !showQuickRestStop {
+                restStopReason = "multiple_alerts"
+                showQuickRestStop = true
+                playRestStopAudio()
+                print("🛑 [RestStop] Showing suggestion after 8 alerts")
             }
         }
         .sheet(isPresented: $showQuickRestStop) {
@@ -310,7 +314,6 @@ struct MainNavigationView: View {
                 userLocation: locationManager.currentLocation,
                 reason: restStopReason,
                 onSelectStop: { coordinate, name in
-                    // Navigate to the selected rest stop
                     destinationCoordinate = coordinate
                     destinationName = name
                 }
@@ -341,7 +344,15 @@ struct MainNavigationView: View {
             permissionManager.checkAllPermissions()
             permissionManager.requestLocationPermission(using: locationManager)
             locationManager.requestPermission()
+
+            // Set up VAPIManager with AR pause/resume callbacks
             vapiManager.setupVapi()
+            vapiManager.onCallWillStart = {
+                NotificationCenter.default.post(name: NSNotification.Name("PauseARSession"), object: nil)
+            }
+            vapiManager.onCallDidEnd = {
+                NotificationCenter.default.post(name: NSNotification.Name("ResumeARSession"), object: nil)
+            }
         }
         .alert("Error", isPresented: .init(
             get: { navigationManager.errorMessage != nil },
@@ -366,8 +377,6 @@ struct MainNavigationView: View {
     }
 
     private func endTrip() {
-        lastFatigueAlertLevel = .normal
-
         // CAPTURE all trip data BEFORE stopping navigation (route gets cleared on stop)
         capturedTripData = TripData(
             duration: tripStartTime.map { Date().timeIntervalSince($0) } ?? 0,
@@ -401,11 +410,13 @@ struct MainNavigationView: View {
         eyeState.noseOffsetX = 0.0
         eyeState.noseOffsetY = 0.0
         eyeState.blinkCount = 0
-        lastFatigueAlertLevel = .normal
         NotificationCenter.default.post(name: NSNotification.Name("ResetCalibration"), object: nil)
     }
 
     private func playRestStopAudio() {
+        // Stop any currently playing rest stop audio first
+        restStopAudioPlayer?.stop()
+
         guard let url = Bundle.main.url(forResource: "RestStopSuggestion", withExtension: "mp3") else {
             print("⚠️ [RestStop] Audio file not found: RestStopSuggestion.mp3")
             return
@@ -958,12 +969,9 @@ struct LoadingOverlay: View {
 struct CompanionModeView: View {
     @Binding var isPresented: Bool
     @ObservedObject var permissionManager: PermissionManager
-    @StateObject private var vapiManager = VAPIManager()
+    @ObservedObject var vapiManager: VAPIManager
     @State private var showPermissionAlert = false
     @State private var isRequestingPermission = false
-
-    var onPauseAR: (() -> Void)?
-    var onResumeAR: (() -> Void)?
 
     var body: some View {
         NavigationStack {
@@ -1019,12 +1027,6 @@ struct CompanionModeView: View {
             }
             .onAppear {
                 permissionManager.checkAllPermissions()
-                vapiManager.setupVapi()
-                vapiManager.onCallWillStart = onPauseAR
-                vapiManager.onCallDidEnd = onResumeAR
-            }
-            .onDisappear {
-                onResumeAR?()
             }
         }
     }

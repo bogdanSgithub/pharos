@@ -34,6 +34,8 @@ class EyeTrackingState: ObservableObject {
 
     // MARK: - Event Tracking
     @Published var eventCoordinates: [CLLocationCoordinate2D] = [] // Locations where fatigue events occurred
+    // MARK: - Alert Tracking (for pit stop / emergency triggers)
+    @Published var tripAlertCount: Int = 0
 
     // MARK: - Hybrid Fatigue Tracking
     // FatigueTracker for comprehensive weighted fatigue detection
@@ -64,6 +66,7 @@ class EyeTrackingState: ObservableObject {
         phonePickupCount = 0
         baselineZDistance = 0.0
         eventCoordinates = []
+        tripAlertCount = 0
         fatigueTracker.reset()
     }
 
@@ -191,6 +194,7 @@ struct ARFaceTrackingView: UIViewRepresentable {
         private var lastAlertTime: Date?
         private let alertCooldown: TimeInterval = 2.5 // Minimum seconds between ANY alerts
         private var currentlyPlayingAlert: String?
+        private var isCompanionModeActive = false // Track companion mode state (not audio session)
 
         // MARK: - Calibration Step Tracking
         private var positionSamples: [(position: SIMD3<Float>, time: Date)] = []
@@ -290,23 +294,26 @@ struct ARFaceTrackingView: UIViewRepresentable {
                 forName: NSNotification.Name("PauseARSession"),
                 object: nil,
                 queue: .main
-            ) { [weak sceneView, weak self] _ in
+            ) { [weak self] _ in
+                // Mark companion mode as active
+                self?.isCompanionModeActive = true
+
                 // Stop any playing audio alerts
                 self?.audioPlayers.values.forEach { $0.stop() }
 
-                // Pause AR session first
-                sceneView?.session.pause()
-                print("AR session paused for companion mode")
+                // DON'T pause AR session - keep face tracking running for fatigue detection
+                // Just deactivate audio session to release it for Vapi
+                print("Companion mode starting - keeping AR session running, releasing audio")
 
                 // Deactivate audio session to release it for Vapi
                 do {
                     try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-                    print("AR audio session deactivated")
+                    print("AR audio session deactivated for Vapi")
                 } catch {
                     print("Error deactivating AR audio session: \(error)")
                 }
 
-                // Notify that AR is fully released
+                // Notify that audio is released (AR still running)
                 NotificationCenter.default.post(name: NSNotification.Name("ARSessionFullyPaused"), object: nil)
             }
             
@@ -314,15 +321,13 @@ struct ARFaceTrackingView: UIViewRepresentable {
                 forName: NSNotification.Name("ResumeARSession"),
                 object: nil,
                 queue: .main
-            ) { [weak sceneView, weak self] _ in
-                // Reconfigure audio session for AR alerts
-                self?.configureAudioSession()
+            ) { [weak self] _ in
+                // Mark companion mode as inactive
+                self?.isCompanionModeActive = false
 
-                if AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
-                    let configuration = ARFaceTrackingConfiguration()
-                    sceneView?.session.run(configuration, options: [])
-                    print("AR session resumed after companion mode")
-                }
+                // Reconfigure audio session for AR alerts (AR session never paused)
+                self?.configureAudioSession()
+                print("Companion mode ended - audio session reconfigured for alerts")
             }
         }
         
@@ -565,7 +570,7 @@ struct ARFaceTrackingView: UIViewRepresentable {
         
         private func playAlert(_ type: String, strike: Int = 1) {
             print("🔔 [Alert] Attempting to play: \(type) (Strike \(strike))")
-            
+
             // MARK: - Alert Cooldown Check (prevents overlap)
             let now = Date()
             if let lastTime = lastAlertTime {
@@ -575,15 +580,65 @@ struct ARFaceTrackingView: UIViewRepresentable {
                     return
                 }
             }
-            
+
             // Don't play alerts if companion mode is active (voice call in progress)
-            let audioSession = AVAudioSession.sharedInstance()
-            if audioSession.category == .playAndRecord {
+            if isCompanionModeActive {
                 print("⏸️ [Alert] Skipped - Companion mode active")
                 return
             }
 
+            // Calculate what the next alert count will be (current + 1)
+            let nextAlertCount = eyeState.tripAlertCount + 1
+            print("🔔 [Alert] This will be alert #\(nextAlertCount)")
+
+            // 8th alert = Pit stop (skip regular audio, play pit stop audio instead)
+            if nextAlertCount == 8 {
+                print("🛑 [Alert] 8th alert - triggering pit stop instead of regular audio")
+                lastAlertTime = now
+                // Increment the count before notifying
+                DispatchQueue.main.async {
+                    self.eyeState.tripAlertCount = nextAlertCount
+                }
+                triggerVibration(strike: strike)
+                // Post notifications to NavigationView
+                NotificationCenter.default.post(name: NSNotification.Name("PitStopAlertTriggered"), object: nil)
+                NotificationCenter.default.post(name: NSNotification.Name("DrowsinessAlertPlayed"), object: nil)
+                return
+            }
+
+            // 13th alert = Emergency call (skip regular drowsiness audio, play emergency sound instead)
+            if nextAlertCount == 13 {
+                print("🚨 [Alert] 13th alert - triggering emergency call instead of regular audio")
+                lastAlertTime = now
+                // Increment the count before notifying
+                DispatchQueue.main.async {
+                    self.eyeState.tripAlertCount = nextAlertCount
+                }
+
+                // Play the emergency call audio
+                let audioSession = AVAudioSession.sharedInstance()
+                do {
+                    try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers, .mixWithOthers])
+                    try audioSession.setActive(true, options: [])
+                } catch {
+                    print("⚠️ [Alert] Audio session error: \(error)")
+                }
+
+                if let player = audioPlayers["emergency_call"] {
+                    player.currentTime = 0
+                    player.volume = 1.0
+                    player.play()
+                    print("🔊 [Alert] Playing emergency call audio")
+                }
+
+                triggerVibration(strike: 2) // Strong vibration for emergency
+                // Post emergency notification (EmergencyContactManager will make the call)
+                NotificationCenter.default.post(name: NSNotification.Name("TriggerEmergencyCall"), object: nil)
+                return
+            }
+
             // Ensure audio session is configured and active
+            let audioSession = AVAudioSession.sharedInstance()
             do {
                 try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers, .mixWithOthers])
                 try audioSession.setActive(true, options: [])
@@ -599,12 +654,17 @@ struct ARFaceTrackingView: UIViewRepresentable {
                 player.currentTime = 0
                 player.volume = 1.0
                 let success = player.play()
-                
+
                 if success {
                     // Update cooldown tracking
                     lastAlertTime = now
                     currentlyPlayingAlert = type
                     print("🔊 [Alert] Playing \(type): SUCCESS (cooldown started)")
+
+                    // Increment eyeState alert count (synced with NavigationView)
+                    DispatchQueue.main.async {
+                        self.eyeState.tripAlertCount = nextAlertCount
+                    }
 
                     // Notify for trip alert count tracking
                     NotificationCenter.default.post(name: NSNotification.Name("DrowsinessAlertPlayed"), object: nil)
