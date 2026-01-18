@@ -21,6 +21,7 @@ struct TripReportView: View {
     let averageBlinkRate: Float
     let perclosHistory: [Float]
     let routeCoordinates: [CLLocationCoordinate2D]
+    let eventCoordinates: [CLLocationCoordinate2D]
 
     // MARK: - Computed
 
@@ -38,7 +39,7 @@ struct TripReportView: View {
                 VStack(spacing: 16) {
 
                     // MARK: - Full-bleed map
-                    RouteMapView(coordinates: routeCoordinates)
+                    RouteMapView(coordinates: routeCoordinates, eventCoordinates: eventCoordinates)
                         .frame(height: 280)
 
                     // MARK: - Stats Grid
@@ -205,10 +206,12 @@ struct BlinkRateCard: View {
 
 struct RouteMapView: View {
     let coordinates: [CLLocationCoordinate2D]
+    let eventCoordinates: [CLLocationCoordinate2D]
 
     var body: some View {
         if coordinates.count >= 2 {
-            StaticMapboxRouteView(coordinates: coordinates).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            StaticMapboxRouteView(coordinates: coordinates, eventCoordinates: eventCoordinates)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         } else {
             // Fallback when no route data
             ZStack {
@@ -230,6 +233,7 @@ struct RouteMapView: View {
 
 struct StaticMapboxRouteView: UIViewRepresentable {
     let coordinates: [CLLocationCoordinate2D]
+    let eventCoordinates: [CLLocationCoordinate2D]
 
     func makeUIView(context: Context) -> MapView {
         let mapInitOptions = MapInitOptions(
@@ -269,16 +273,18 @@ struct StaticMapboxRouteView: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(coordinates: coordinates)
+        Coordinator(coordinates: coordinates, eventCoordinates: eventCoordinates)
     }
 
     class Coordinator {
         weak var mapView: MapView?
         let coordinates: [CLLocationCoordinate2D]
+        let eventCoordinates: [CLLocationCoordinate2D]
         private var didSetupRoute = false
 
-        init(coordinates: [CLLocationCoordinate2D]) {
+        init(coordinates: [CLLocationCoordinate2D], eventCoordinates: [CLLocationCoordinate2D]) {
             self.coordinates = coordinates
+            self.eventCoordinates = eventCoordinates
         }
 
         func setupRoute() {
@@ -339,6 +345,28 @@ struct StaticMapboxRouteView: UIViewRepresentable {
                 endLayer.circleStrokeWidth = .constant(3)
                 endLayer.circleStrokeColor = .constant(StyleColor(.white))
                 try? mapView.mapboxMap.addLayer(endLayer)
+            }
+
+            // Add event markers (yellow circles)
+            if !eventCoordinates.isEmpty {
+                let eventSourceId = "trip-events-source"
+                let eventLayerId = "trip-events-layer"
+
+                var features: [Feature] = []
+                for coord in eventCoordinates {
+                    features.append(Feature(geometry: .point(Point(coord))))
+                }
+
+                var eventSource = GeoJSONSource(id: eventSourceId)
+                eventSource.data = .featureCollection(FeatureCollection(features: features))
+                try? mapView.mapboxMap.addSource(eventSource)
+
+                var eventLayer = CircleLayer(id: eventLayerId, source: eventSourceId)
+                eventLayer.circleRadius = .constant(8)
+                eventLayer.circleColor = .constant(StyleColor(UIColor(red: 1.0, green: 0.8, blue: 0.0, alpha: 1.0))) // Yellow
+                eventLayer.circleStrokeWidth = .constant(2)
+                eventLayer.circleStrokeColor = .constant(StyleColor(.white))
+                try? mapView.mapboxMap.addLayer(eventLayer)
             }
 
             // Fit camera to show entire route (updated API)
@@ -482,6 +510,7 @@ struct PerclosGraphView: View {
         baselineBlinkRate: 18,
         averageBlinkRate: 24,
         perclosHistory: [2, 3, 2, 5, 4, 6, 8, 7, 5, 4, 6, 8, 10, 9, 7, 8, 6, 5],
-        routeCoordinates: []
+        routeCoordinates: [],
+        eventCoordinates: []
     )
 }

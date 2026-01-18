@@ -11,6 +11,7 @@ import SceneKit
 import AVFoundation
 import Combine
 import AudioToolbox
+import CoreLocation
 
 class EyeTrackingState: ObservableObject {
     @Published var isCalibrated = false
@@ -30,6 +31,9 @@ class EyeTrackingState: ObservableObject {
     // MARK: - Phone Pickup Detection
     @Published var phonePickupCount: Int = 0 // Number of times user picked up phone during trip
     @Published var baselineZDistance: Float = 0.0 // Baseline distance from phone to face (meters)
+
+    // MARK: - Event Tracking
+    @Published var eventCoordinates: [CLLocationCoordinate2D] = [] // Locations where fatigue events occurred
 
     // MARK: - Hybrid Fatigue Tracking
     // FatigueTracker for comprehensive weighted fatigue detection
@@ -59,7 +63,14 @@ class EyeTrackingState: ObservableObject {
         currentBlinkRate = 0.0
         phonePickupCount = 0
         baselineZDistance = 0.0
+        eventCoordinates = []
         fatigueTracker.reset()
+    }
+
+    /// Call this when an event occurs (drowsiness, yawn, etc.) to record the location
+    func recordEvent(at coordinate: CLLocationCoordinate2D) {
+        eventCoordinates.append(coordinate)
+        print("📍 [Event] Recorded event at lat=\(coordinate.latitude), lon=\(coordinate.longitude). Total events: \(eventCoordinates.count)")
     }
 }
 
