@@ -216,7 +216,7 @@ struct MainNavigationView: View {
         .sheet(isPresented: $showEmergencyContactSetup) {
             EmergencyContactSetupView()
         }
-        .sheet(isPresented: $showTripReport) {
+        .fullScreenCover(isPresented: $showTripReport) {
             if let data = capturedTripData {
                 TripReportView(
                     isPresented: $showTripReport,
