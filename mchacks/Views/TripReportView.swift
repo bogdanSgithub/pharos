@@ -2,13 +2,12 @@
 //  TripReportView.swift
 //  mchacks
 //
-//  Clean trip analysis with map, stats, and PERCLOS graph
-//
 
 import SwiftUI
 import MapboxMaps
 import CoreLocation
 import Turf
+import Charts
 
 struct TripReportView: View {
     @Binding var isPresented: Bool
@@ -23,18 +22,12 @@ struct TripReportView: View {
     let perclosHistory: [Float]
     let routeCoordinates: [CLLocationCoordinate2D]
 
-    @State private var appeared = false
-
-    // MARK: - Computed Properties
+    // MARK: - Computed
 
     private var formattedDuration: String {
         let hours = Int(tripDuration) / 3600
         let minutes = Int(tripDuration) / 60 % 60
-        if hours > 0 {
-            return "\(hours)h \(minutes)m"
-        } else {
-            return "\(minutes) min"
-        }
+        return hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes) min"
     }
 
     // MARK: - Body
@@ -44,49 +37,36 @@ struct TripReportView: View {
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
 
-                    // MARK: - Route Map
+                    // MARK: - Full-bleed map
                     RouteMapView(coordinates: routeCoordinates)
-                        .frame(height: 200)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .padding(.horizontal, 16)
+                        .frame(height: 280)
 
                     // MARK: - Stats Grid
-                    LazyVGrid(columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12)
-                    ], spacing: 12) {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 8),
+                            GridItem(.flexible(), spacing: 8)
+                        ],
+                        spacing: 12
+                    ) {
+
+                        StatCard( value: formattedDuration, label: "Duration")
+
+                        StatCard(value: tripDistance, label: "Distance")
 
                         StatCard(
-                            icon: "clock",
-                            value: formattedDuration,
-                            label: "Duration"
-                        )
-
-                        StatCard(
-                            icon: "arrow.right",
-                            value: tripDistance,
-                            label: "Distance"
-                        )
-
-                        StatCard(
-                            icon: "exclamationmark.triangle",
                             value: "\(alertCount)",
-                            label: "Alerts",
-                            valueColor: alertCount > 0 ? Color(hex: "EF4444") : nil
+                            label: "Alerts"
                         )
 
                         StatCard(
-                            icon: "iphone",
                             value: "\(phonePickupCount)",
-                            label: "Phone Pickups",
-                            valueColor: phonePickupCount > 0 ? Color(hex: "F97316") : nil
+                            label: "Phone Pickups"
                         )
 
                         StatCard(
-                            icon: "mouth",
                             value: "\(yawnCount)",
-                            label: "Yawns",
-                            valueColor: yawnCount >= 3 ? Color(hex: "EAB308") : nil
+                            label: "Yawns"
                         )
 
                         BlinkRateCard(
@@ -96,55 +76,30 @@ struct TripReportView: View {
                     }
                     .padding(.horizontal, 16)
 
-                    // MARK: - PERCLOS Graph
+                    // MARK: - PERCLOS
                     if !perclosHistory.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("PERCLOS")
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(Color(hex: "9CA3AF"))
-                                .padding(.horizontal, 4)
 
-                            PerclosGraphView(data: perclosHistory, tripDuration: tripDuration)
-                                .frame(height: 140)
+                            PerclosGraphView(
+                                data: perclosHistory,
+                                tripDuration: tripDuration
+                            )
+                            .frame(height: 140)
                         }
                         .padding(16)
-                        .background(Color(hex: "111827"))
+                        .background(AppColors.backgroundPrimary)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .padding(.horizontal, 16)
                     }
 
-                    Spacer().frame(height: 80)
+                    Spacer().frame(height: 20)
                 }
-                .padding(.top, 16)
-            }
-            .background(Color(hex: "030712"))
-            .navigationTitle("Trip Summary")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color(hex: "030712"), for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: { isPresented = false }) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(Color(hex: "9CA3AF"))
-                    }
-                }
-
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    ShareLink(
-                        item: generateShareText(),
-                        subject: Text("Trip Summary"),
-                        message: Text("")
-                    ) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(Color(hex: "9CA3AF"))
-                    }
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                Button(action: { isPresented = false }) {
+                Button {
+                    isPresented = false
+                } label: {
                     Text("Done")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.white)
@@ -157,11 +112,15 @@ struct TripReportView: View {
                 .padding(.bottom, 8)
                 .background(Color(hex: "030712"))
             }
-        }
-        .onAppear {
-            appeared = true
+            .ignoresSafeArea(edges: .top)
+            .background(Color(hex: "030712"))
+
+            .navigationBarTitleDisplayMode(.inline)
+
         }
     }
+
+    // MARK: - Share text
 
     private func generateShareText() -> String {
         """
@@ -178,30 +137,23 @@ struct TripReportView: View {
 }
 
 // MARK: - Stat Card
-
 struct StatCard: View {
-    let icon: String
     let value: String
     let label: String
     var valueColor: Color? = nil
 
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 18))
+            Text(label)
+                .font(.system(size: 12))
                 .foregroundColor(Color(hex: "6B7280"))
 
             Text(value)
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundColor(valueColor ?? .white)
-
-            Text(label)
-                .font(.system(size: 12))
-                .foregroundColor(Color(hex: "6B7280"))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .background(Color(hex: "111827"))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
@@ -214,8 +166,8 @@ struct BlinkRateCard: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "eye")
-                .font(.system(size: 18))
+            Text("Blinks/min")
+                .font(.system(size: 12))
                 .foregroundColor(Color(hex: "6B7280"))
 
             HStack(spacing: 12) {
@@ -242,13 +194,9 @@ struct BlinkRateCard: View {
                 }
             }
 
-            Text("Blinks/min")
-                .font(.system(size: 12))
-                .foregroundColor(Color(hex: "6B7280"))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .background(Color(hex: "111827"))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
@@ -260,7 +208,7 @@ struct RouteMapView: View {
 
     var body: some View {
         if coordinates.count >= 2 {
-            StaticMapboxRouteView(coordinates: coordinates)
+            StaticMapboxRouteView(coordinates: coordinates).clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         } else {
             // Fallback when no route data
             ZStack {
@@ -393,10 +341,10 @@ struct StaticMapboxRouteView: UIViewRepresentable {
                 try? mapView.mapboxMap.addLayer(endLayer)
             }
 
-            // Fit camera to show entire route
+            // Fit camera to show entire route (updated API)
             let cameraOptions = mapView.mapboxMap.camera(
                 for: .lineString(LineString(coordinates)),
-                padding: UIEdgeInsets(top: 30, left: 30, bottom: 30, right: 30),
+                padding: UIEdgeInsets(top: 80, left: 80, bottom: 80, right: 80),
                 bearing: nil,
                 pitch: nil
             )
@@ -476,13 +424,7 @@ struct PerclosGraphView: View {
                             }
                             path.closeSubpath()
                         }
-                        .fill(
-                            LinearGradient(
-                                colors: [Color(hex: "3B82F6").opacity(0.3), Color(hex: "3B82F6").opacity(0.05)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
+                        .fill(AppColors.accent.opacity(0.4))
 
                         // Line graph
                         Path { path in
@@ -498,14 +440,10 @@ struct PerclosGraphView: View {
                             }
                         }
                         .stroke(
-                            LinearGradient(
-                                colors: [Color(hex: "3B82F6"), Color(hex: "8B5CF6")],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            ),
+                            AppColors.accent,
                             style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
                         )
-                    }
+        }
                     .padding(.leading, 40)
                 }
             }
@@ -513,8 +451,8 @@ struct PerclosGraphView: View {
             // X-axis time labels
             HStack {
                 Text("0m")
-                    .font(.system(size: 9))
-                    .foregroundColor(Color(hex: "6B7280"))
+                            .font(.system(size: 9))
+                            .foregroundColor(Color(hex: "6B7280"))
                 Spacer()
                 if tripDuration > 120 {
                     Text(formatTime(tripDuration / 2))
