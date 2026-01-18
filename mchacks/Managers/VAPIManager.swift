@@ -47,6 +47,8 @@ class VAPIManager: ObservableObject {
                 case .callDidEnd:
                     self?.callState = .ended
                     self?.stopCallTimer()
+                    // IMPORTANT: Resume AR session when call ends (whether user or AI ended it)
+                    self?.onCallDidEnd?()
                 case .speechUpdate:
                     print(event)
                 case .conversationUpdate:
