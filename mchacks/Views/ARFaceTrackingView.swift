@@ -766,8 +766,11 @@ struct ARFaceTrackingView: UIViewRepresentable {
             // Check if both eyes are closed
             let bothEyesClosed = leftEyeBlink > eyeClosedThreshold && rightEyeBlink > eyeClosedThreshold
 
-            // Skip eye closure detection if phone pickup is active (avoids conflicting alerts)
-            if bothEyesClosed && !isPhonePickupActive {
+            // Skip alerts during calibration - only run detection after calibration is complete
+            let shouldRunDetection = eyeState.isCalibrated && !isInCalibrationMode
+
+            // Skip eye closure detection if phone pickup is active or during calibration
+            if bothEyesClosed && !isPhonePickupActive && shouldRunDetection {
                 // Start tracking when eyes first close
                 if eyesClosedStartTime == nil {
                     eyesClosedStartTime = Date()
@@ -792,14 +795,7 @@ struct ARFaceTrackingView: UIViewRepresentable {
                             eyesClosedStrike = 2
                             eyesClosedLastStrikeTime = Date()
                         }
-                        // Strike 3: Emergency call after another strikeDuration seconds
-                        else if eyesClosedStrike == 2,
-                                let lastStrikeTime = eyesClosedLastStrikeTime,
-                                Date().timeIntervalSince(lastStrikeTime) >= strikeDuration {
-                            self.playAlert("emergency_call", strike: 3)
-                            eyesClosedStrike = 3
-                            triggerEmergencyCall()
-                        }
+                        // Note: Emergency call removed from Strike 3 - now triggered by FatigueTracker critical level
                     }
                 }
             } else {
@@ -854,8 +850,8 @@ struct ARFaceTrackingView: UIViewRepresentable {
             // MARK: - Yawning Detection with Strike System
             let isYawning = jawOpen > yawnThreshold
 
-            // Skip yawning detection if phone pickup is active (avoids conflicting alerts)
-            if isYawning && !isPhonePickupActive {
+            // Skip yawning detection if phone pickup is active or during calibration
+            if isYawning && !isPhonePickupActive && shouldRunDetection {
                 // Start tracking when yawn begins
                 if yawnStartTime == nil {
                     yawnStartTime = Date()
@@ -880,14 +876,7 @@ struct ARFaceTrackingView: UIViewRepresentable {
                             yawningStrike = 2
                             yawningLastStrikeTime = Date()
                         }
-                        // Strike 3: Emergency call after another strikeDuration seconds
-                        else if yawningStrike == 2,
-                                let lastStrikeTime = yawningLastStrikeTime,
-                                Date().timeIntervalSince(lastStrikeTime) >= strikeDuration {
-                            self.playAlert("emergency_call", strike: 3)
-                            yawningStrike = 3
-                            triggerEmergencyCall()
-                        }
+                        // Note: Emergency call removed from Strike 3 - now triggered by FatigueTracker critical level
                     }
                 }
             } else {
@@ -924,8 +913,8 @@ struct ARFaceTrackingView: UIViewRepresentable {
                 let isOutside = distance > thresholdRadius
 
                 // MARK: - Looking Away Detection with Strike System
-                // Skip if phone pickup is active (avoids conflicting alerts)
-                if isOutside && !isPhonePickupActive {
+                // Skip if phone pickup is active or during calibration
+                if isOutside && !isPhonePickupActive && shouldRunDetection {
                     if outsideCircleStartTime == nil {
                         outsideCircleStartTime = Date()
                         hasNotifiedOutside = false
@@ -949,14 +938,7 @@ struct ARFaceTrackingView: UIViewRepresentable {
                                 lookingAwayStrike = 2
                                 lookingAwayLastStrikeTime = Date()
                             }
-                            // Strike 3: Emergency call after another strikeDuration seconds
-                            else if lookingAwayStrike == 2,
-                                    let lastStrikeTime = lookingAwayLastStrikeTime,
-                                    Date().timeIntervalSince(lastStrikeTime) >= strikeDuration {
-                                self.playAlert("emergency_call", strike: 3)
-                                lookingAwayStrike = 3
-                                triggerEmergencyCall()
-                            }
+                            // Note: Emergency call removed from Strike 3 - now triggered by FatigueTracker critical level
                         }
                     }
                 } else {
@@ -969,8 +951,8 @@ struct ARFaceTrackingView: UIViewRepresentable {
             }
 
             // MARK: - Phone Pickup Detection (Z-Distance)
-            // Only check if calibrated and baseline Z is valid
-            if eyeState.isCalibrated && calibratedZDistance > 0 {
+            // Only check if calibrated, not in calibration mode, and baseline Z is valid
+            if shouldRunDetection && calibratedZDistance > 0 {
                 checkPhonePickup(faceAnchor: faceAnchor)
             }
         }
