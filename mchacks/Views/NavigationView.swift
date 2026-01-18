@@ -20,6 +20,7 @@ struct TripData {
     let averageBlinkRate: Float
     let perclosHistory: [Float]  // PERCLOS values over time for graph
     let routeCoordinates: [CLLocationCoordinate2D]  // For map display
+    let eventCoordinates: [CLLocationCoordinate2D]  // Locations where events occurred
 }
 
 struct MainNavigationView: View {
@@ -237,7 +238,8 @@ struct MainNavigationView: View {
                     baselineBlinkRate: data.baselineBlinkRate,
                     averageBlinkRate: data.averageBlinkRate,
                     perclosHistory: data.perclosHistory,
-                    routeCoordinates: data.routeCoordinates
+                    routeCoordinates: data.routeCoordinates,
+                    eventCoordinates: data.eventCoordinates
                 )
             } else {
                 // Fallback (shouldn't happen)
@@ -251,7 +253,8 @@ struct MainNavigationView: View {
                     baselineBlinkRate: 0,
                     averageBlinkRate: 0,
                     perclosHistory: [],
-                    routeCoordinates: []
+                    routeCoordinates: [],
+                    eventCoordinates: []
                 )
             }
         }
@@ -263,6 +266,36 @@ struct MainNavigationView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DrowsinessAlertPlayed"))) { _ in
             tripAlertCount += 1
+            // Record event location for trip report map
+            if let coordinate = locationManager.currentLocation?.coordinate {
+                eyeState.recordEvent(at: coordinate)
+            }
+        }
+        // MARK: - Hybrid Fatigue Level Monitoring
+        // Monitor FatigueTracker's level for rest stop suggestions and emergency calls
+        .onReceive(eyeState.fatigueTracker.metrics.$fatigueLevel) { newLevel in
+            // Only act when navigating and level escalates
+            if navigationManager.isNavigating &&
+               newLevel.shouldAlert &&
+               lastFatigueAlertLevel.alertPriority < newLevel.alertPriority {
+
+                // Record event location for trip report map
+                if let coordinate = locationManager.currentLocation?.coordinate {
+                    eyeState.recordEvent(at: coordinate)
+                }
+
+                if newLevel == .critical {
+                    // CRITICAL: Trigger emergency call (most severe intervention)
+                    print("🚨 [Fatigue] CRITICAL level reached - triggering emergency call")
+                    NotificationCenter.default.post(name: NSNotification.Name("TriggerEmergencyCall"), object: nil)
+                } else if newLevel == .moderate || newLevel == .high {
+                    // MODERATE/HIGH: Show rest stop suggestion
+                    restStopReason = "fatigue_\(newLevel.rawValue)"
+                    showQuickRestStop = true
+                    playRestStopAudio()
+                }
+
+                lastFatigueAlertLevel = newLevel
             print("🔔 [Alert] Count: \(tripAlertCount)")
             // Note: 13th alert emergency is handled in ARFaceTrackingView.playAlert()
         }
@@ -354,10 +387,11 @@ struct MainNavigationView: View {
             baselineBlinkRate: eyeState.baselineBlinkRate,
             averageBlinkRate: eyeState.currentBlinkRate,
             perclosHistory: eyeState.perclosHistory,
-            routeCoordinates: navigationManager.routeCoordinates ?? []
+            routeCoordinates: navigationManager.routeCoordinates ?? [],
+            eventCoordinates: eyeState.eventCoordinates
         )
 
-        print("📊 [Trip End] Captured - Alerts: \(tripAlertCount), Phone: \(eyeState.phonePickupCount), Yawns: \(eyeState.yawnCount), PERCLOS samples: \(eyeState.perclosHistory.count), Route points: \(navigationManager.routeCoordinates?.count ?? 0)")
+        print("📊 [Trip End] Captured - Alerts: \(tripAlertCount), Phone: \(eyeState.phonePickupCount), Yawns: \(eyeState.yawnCount), PERCLOS samples: \(eyeState.perclosHistory.count), Route points: \(navigationManager.routeCoordinates?.count ?? 0), Event locations: \(eyeState.eventCoordinates.count)")
 
         // Stop navigation AFTER capturing data
         navigationManager.stopNavigation()
