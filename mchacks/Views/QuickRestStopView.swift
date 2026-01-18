@@ -24,6 +24,7 @@ class RestStopSearchManager {
 struct RestStopOption: Identifiable {
     let id = UUID()
     let name: String
+    let address: String?
     let coordinate: CLLocationCoordinate2D
     let distance: CLLocationDistance
     let category: StopCategory
@@ -161,6 +162,7 @@ class QuickRestStopViewModel: ObservableObject {
 
                     return RestStopOption(
                         name: searchResult.name,
+                        address: searchResult.address?.formattedAddress(style: .short),
                         coordinate: searchResult.coordinate,
                         distance: distance,
                         category: category
@@ -192,57 +194,49 @@ struct QuickRestStopView: View {
 
     @StateObject private var viewModel = QuickRestStopViewModel()
 
-    private var reasonMessage: String {
-        switch reason {
-        case "eyes_closed":
-            return "You seem drowsy. Take a break?"
-        case "yawning":
-            return "Feeling tired? Here are some stops nearby."
-        case "fatigue_High Fatigue", "fatigue_Critical":
-            return "You're fatigued. Pull over and rest."
-        case let r where r.starts(with: "fatigue_"):
-            return "Signs of fatigue detected. Find a safe place to stop."
-        default:
-            return "Need a break? Here are nearby stops."
-        }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
+            // Handle indicator
+            Capsule()
+                .fill(AppColors.textMuted)
+                .frame(width: 40, height: 5)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
+
             // Header
-            Text(reasonMessage)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.center)
-                .padding(.top, 24)
-                .padding(.horizontal, 20)
+            Text("Take a break?")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(AppColors.textPrimary)
+                .padding(.bottom, 12)
 
             // Content
             if viewModel.isLoading {
-                VStack(spacing: 16) {
+                HStack(spacing: 12) {
                     ProgressView()
-                        .scaleEffect(1.2)
-                        .tint(.white)
+                        .progressViewStyle(CircularProgressViewStyle(tint: .black))
                     Text("Finding nearby stops...")
-                        .font(.system(size: 14))
-                        .foregroundColor(.gray)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.black)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
+                .padding(.vertical, 14)
+                .background(AppColors.accent)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
             } else if viewModel.stopOptions.isEmpty {
-                VStack(spacing: 12) {
+                VStack(spacing: 10) {
                     Image(systemName: "mappin.slash")
-                        .font(.system(size: 36))
-                        .foregroundColor(.gray)
-                    Text("No stops found nearby")
-                        .font(.system(size: 16))
-                        .foregroundColor(.gray)
+                        .font(.system(size: 24))
+                        .foregroundColor(AppColors.textSecondary)
+                    Text("No stops nearby")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(AppColors.textSecondary)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
+                .padding(.vertical, 16)
             } else {
-                // Show options (1 food, 1 gas, 1 rest)
-                VStack(spacing: 12) {
+                // Show options
+                VStack(spacing: 8) {
                     ForEach(viewModel.stopOptions) { stop in
                         QuickRestStopRow(stop: stop)
                             .contentShape(Rectangle())
@@ -253,27 +247,26 @@ struct QuickRestStopView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 20)
             }
 
-            Spacer()
-
-            // Skip button
+            // Continue Driving button - full width
             Button(action: {
                 isPresented = false
             }) {
-                Text("I'm Fine, Skip")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundColor(.white.opacity(0.7))
+                Text("Continue Driving")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppColors.textPrimary)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(Color.white.opacity(0.1))
-                    .cornerRadius(12)
+                    .padding(.vertical, 14)
+                    .background(AppColors.backgroundCard)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 30)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 16)
         }
-        .background(Color(red: 0.1, green: 0.1, blue: 0.12))
+        .frame(maxWidth: .infinity)
+        .background(AppColors.backgroundSecondary)
         .onAppear {
             if let location = userLocation {
                 viewModel.searchForNearbyStops(location: location)
@@ -288,49 +281,53 @@ struct QuickRestStopView: View {
 struct QuickRestStopRow: View {
     let stop: RestStopOption
 
+    private var iconName: String {
+        switch stop.category {
+        case .food: return "food"
+        case .gas: return "gas"
+        case .rest: return "rest"
+        }
+    }
+
     var body: some View {
         HStack(spacing: 14) {
-            // Category icon
-            ZStack {
-                Circle()
-                    .fill(stop.category.color.opacity(0.2))
-                    .frame(width: 44, height: 44)
+            // Category icon from assets
+            Image(iconName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 28, height: 28)
+                .foregroundColor(AppColors.textSecondary)
 
-                Image(systemName: stop.category.icon)
-                    .font(.system(size: 18))
-                    .foregroundColor(stop.category.color)
-            }
-
-            // Info
+            // Info - Title + distance on top, address below
             VStack(alignment: .leading, spacing: 4) {
-                Text(stop.name)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-
                 HStack(spacing: 6) {
-                    Text(stop.category.rawValue)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(stop.category.color)
+                    Text(stop.name)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(AppColors.textPrimary)
+                        .lineLimit(1)
 
-                    Text("•")
-                        .foregroundColor(.gray)
+                    Text("·")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(AppColors.textMuted)
 
                     Text(formatDistance(stop.distance))
-                        .font(.system(size: 13))
-                        .foregroundColor(.gray)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AppColors.textSecondary)
+
+                    Spacer()
+                }
+
+                if let address = stop.address, !address.isEmpty {
+                    Text(address)
+                        .font(.system(size: 14))
+                        .foregroundColor(AppColors.textSecondary)
+                        .lineLimit(1)
                 }
             }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14))
-                .foregroundColor(.gray)
         }
         .padding(14)
-        .background(Color.white.opacity(0.05))
-        .cornerRadius(12)
+        .background(AppColors.backgroundCard)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func formatDistance(_ meters: CLLocationDistance) -> String {

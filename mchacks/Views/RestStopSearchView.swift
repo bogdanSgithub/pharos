@@ -51,7 +51,7 @@ struct RestStopSearchView: View {
             VStack(spacing: 0) {
                 // Category picker
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 10) {
                         ForEach(RestStopCategory.allCases, id: \.self) { category in
                             CategoryButton(
                                 category: category,
@@ -64,58 +64,76 @@ struct RestStopSearchView: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 14)
                 }
-                .background(Color(.systemGray6))
+                .background(AppColors.backgroundSecondary)
 
                 // Results
                 if isSearching {
-                    VStack {
+                    VStack(spacing: 16) {
                         Spacer()
-                        ProgressView("Searching nearby...")
-                            .progressViewStyle(CircularProgressViewStyle())
+                        ZStack {
+                            Circle()
+                                .stroke(AppColors.textMuted, lineWidth: 4)
+                                .frame(width: 44, height: 44)
+
+                            Circle()
+                                .trim(from: 0, to: 0.3)
+                                .stroke(AppColors.accent, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                                .frame(width: 44, height: 44)
+                                .rotationEffect(Angle(degrees: -90))
+                        }
+                        Text("Searching nearby...")
+                            .font(.system(size: 15))
+                            .foregroundColor(AppColors.textSecondary)
                         Spacer()
                     }
                 } else if suggestions.isEmpty {
                     VStack(spacing: 16) {
-                        Image(systemName: "mappin.slash")
-                            .font(.system(size: 48))
-                            .foregroundColor(.gray.opacity(0.5))
+                        ZStack {
+                            Circle()
+                                .fill(AppColors.backgroundCard)
+                                .frame(width: 80, height: 80)
+
+                            Image(systemName: "mappin.slash")
+                                .font(.system(size: 32))
+                                .foregroundColor(AppColors.textSecondary)
+                        }
                         Text("No rest stops found nearby")
-                            .font(.system(size: 17, weight: .medium))
-                            .foregroundColor(.gray)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(AppColors.textPrimary)
                         Text("Try a different category")
                             .font(.system(size: 14))
-                            .foregroundColor(.gray.opacity(0.7))
+                            .foregroundColor(AppColors.textSecondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 0) {
+                        LazyVStack(spacing: 10) {
                             ForEach(suggestions, id: \.mapboxId) { suggestion in
                                 RestStopRow(suggestion: suggestion, userLocation: userLocation)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         selectStop(suggestion)
                                     }
-                                    .padding(.horizontal, 16)
-
-                                Divider()
-                                    .padding(.leading, 74)
                             }
                         }
-                        .padding(.top, 8)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
                     }
                 }
             }
-            .background(Color(.systemBackground))
+            .background(AppColors.backgroundPrimary)
             .navigationTitle("Find a Rest Stop")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(AppColors.backgroundSecondary, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
                         isPresented = false
                     }
+                    .foregroundColor(AppColors.accent)
                 }
             }
             .onAppear {
@@ -210,21 +228,17 @@ struct CategoryButton: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: category.icon)
-                    .font(.system(size: 14))
+                    .font(.system(size: 15, weight: .medium))
                 Text(category.rawValue)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 14, weight: .semibold))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background(isSelected ? Color.blue : Color(.systemBackground))
-            .foregroundColor(isSelected ? .white : .primary)
-            .cornerRadius(20)
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(isSelected ? Color.blue : Color.gray.opacity(0.3), lineWidth: 1)
-            )
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(isSelected ? AppColors.accent : AppColors.backgroundCard)
+            .foregroundColor(isSelected ? .black : AppColors.textSecondary)
+            .clipShape(Capsule())
         }
     }
 }
@@ -234,44 +248,72 @@ struct RestStopRow: View {
     let suggestion: PlaceAutocomplete.Suggestion
     let userLocation: CLLocation?
 
+    private var iconColor: Color {
+        let name = suggestion.name.lowercased()
+        if name.contains("gas") || name.contains("shell") || name.contains("esso") || name.contains("petro") {
+            return AppColors.accent
+        } else if name.contains("coffee") || name.contains("starbucks") || name.contains("tim hortons") || name.contains("café") {
+            return AppColors.warning
+        } else if name.contains("mcdonald") || name.contains("restaurant") || name.contains("wendy") || name.contains("burger") {
+            return AppColors.warning
+        } else {
+            return AppColors.success
+        }
+    }
+
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 16) {
             ZStack {
                 Circle()
-                    .fill(Color.orange.opacity(0.15))
-                    .frame(width: 50, height: 50)
+                    .fill(iconColor.opacity(0.15))
+                    .frame(width: 48, height: 48)
 
                 Image(systemName: iconForSuggestion)
-                    .font(.system(size: 20))
-                    .foregroundColor(.orange)
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(iconColor)
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(suggestion.name)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(.primary)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(AppColors.textPrimary)
+                    .lineLimit(1)
 
-                if let description = suggestion.description {
-                    Text(description)
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
+                HStack(spacing: 8) {
+                    if let description = suggestion.description {
+                        Text(description)
+                            .font(.system(size: 13))
+                            .foregroundColor(AppColors.textSecondary)
+                            .lineLimit(1)
+                    }
 
-                if let distance = distanceText {
-                    Text(distance)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.blue)
+                    if let distance = distanceText {
+                        if suggestion.description != nil {
+                            Text("•")
+                                .foregroundColor(AppColors.textMuted)
+                        }
+                        Text(distance)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(AppColors.accent)
+                    }
                 }
             }
 
             Spacer()
 
-            Image(systemName: "arrow.right.circle.fill")
-                .font(.system(size: 24))
-                .foregroundColor(.blue)
+            ZStack {
+                Circle()
+                    .fill(AppColors.accent)
+                    .frame(width: 36, height: 36)
+
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.black)
+            }
         }
-        .padding(.vertical, 12)
+        .padding(16)
+        .background(AppColors.backgroundCard)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var iconForSuggestion: String {
@@ -300,10 +342,10 @@ struct RestStopRow: View {
         let distanceMeters = userLoc.distance(from: stopLocation)
 
         if distanceMeters < 1000 {
-            return String(format: "%.0f m away", distanceMeters)
+            return String(format: "%.0f m", distanceMeters)
         } else {
             let distanceKm = distanceMeters / 1000
-            return String(format: "%.1f km away", distanceKm)
+            return String(format: "%.1f km", distanceKm)
         }
     }
 }

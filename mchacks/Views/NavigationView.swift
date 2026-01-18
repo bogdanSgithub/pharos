@@ -25,6 +25,7 @@ struct MainNavigationView: View {
     @StateObject private var locationManager = LocationManager()
     @StateObject private var navigationManager = NavigationManager()
     @StateObject private var permissionManager = PermissionManager()
+    @StateObject private var vapiManager = VAPIManager()
 
     @State private var showSearch = false
     @State private var destinationCoordinate: CLLocationCoordinate2D?
@@ -79,17 +80,15 @@ struct MainNavigationView: View {
             if navigationManager.isNavigating {
                 // Top section - Navigation instruction and camera
                 VStack {
-                    HStack(alignment: .top, spacing: 12) {
-                        // Left - Navigation instructions (Waze style)
+                    HStack(alignment: .top, spacing: 10) {
+                        // Left - Navigation instructions (fills available space)
                         NavigationCard(
                             instruction: navigationManager.currentStepInstruction,
                             distance: navigationManager.formattedDistanceToManeuver,
                             maneuverType: navigationManager.currentManeuverType
                         )
 
-                        Spacer()
-
-                        // Right - Face camera (compact)
+                        // Right - Face camera (bigger square)
                         FaceCameraCard(eyeState: eyeState)
                     }
                     .padding(.top, 8)
@@ -98,7 +97,7 @@ struct MainNavigationView: View {
                     Spacer()
                 }
 
-                // Bottom left - Speed display
+                // Bottom - Speed display and companion button
                 VStack {
                     Spacer()
                     HStack(alignment: .bottom) {
@@ -110,30 +109,44 @@ struct MainNavigationView: View {
 
                         Spacer()
 
-                        // Center - Report and Alert buttons
-                        WazeMapActionButtons(
-                            onReport: {},
-                            onAlert: {}
-                        )
-
-                        Spacer()
-
-                        // Recenter button (right side)
-                        Button(action: { shouldRecenter = true }) {
+                        // Companion mode button - starts call directly
+                        Button(action: {
+                            if vapiManager.isCallActive {
+                                vapiManager.endCall()
+                            } else if !vapiManager.isConnecting {
+                                Task { await vapiManager.startCall() }
+                            }
+                        }) {
                             ZStack {
                                 Circle()
-                                    .fill(AppColors.backgroundCard)
-                                    .frame(width: 48, height: 48)
+                                    .fill(vapiManager.isCallActive ? AppColors.error : AppColors.backgroundCard)
+                                    .frame(width: 56, height: 56)
 
-                                Image(systemName: "location.fill")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(AppColors.accent)
+                                if vapiManager.isConnecting {
+                                    // Loading spinner
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: AppColors.accent))
+                                        .scaleEffect(1.2)
+                                } else if vapiManager.isCallActive {
+                                    // Hang up icon
+                                    Image(systemName: "phone.down.fill")
+                                        .font(.system(size: 24, weight: .semibold))
+                                        .foregroundColor(.white)
+                                } else {
+                                    // Call icon
+                                    Image("call")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 28, height: 28)
+                                        .foregroundColor(AppColors.accent)
+                                }
                             }
                             .shadow(color: Color.black.opacity(0.3), radius: 6, y: 3)
                         }
+                        .disabled(vapiManager.isConnecting)
                         .padding(.trailing, 16)
                     }
-                    .padding(.bottom, 180)
+                    .padding(.bottom, 160)
                 }
             }
 
@@ -281,9 +294,10 @@ struct MainNavigationView: View {
                     destinationName = name
                 }
             )
-            .presentationDetents([.medium])
+            .presentationDetents([.height(300)])
             .presentationDragIndicator(.hidden)
             .presentationCornerRadius(20)
+            .presentationBackground(AppColors.backgroundSecondary)
         }
         .onChange(of: destinationCoordinate) { _, newValue in
             if let destination = newValue,
@@ -306,6 +320,7 @@ struct MainNavigationView: View {
             permissionManager.checkAllPermissions()
             permissionManager.requestLocationPermission(using: locationManager)
             locationManager.requestPermission()
+            vapiManager.setupVapi()
         }
         .alert("Error", isPresented: .init(
             get: { navigationManager.errorMessage != nil },
@@ -466,77 +481,78 @@ struct NavigationCard: View {
     var nextManeuverType: ManeuverType? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Main instruction row
-            HStack(alignment: .center, spacing: 14) {
-                // Large turn arrow
-                Image(systemName: maneuverType.iconName)
-                    .font(.system(size: 36, weight: .bold))
+        HStack(alignment: .center, spacing: 16) {
+            // Large turn arrow
+            Image(systemName: maneuverType.iconName)
+                .font(.system(size: 40, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 50)
+
+            VStack(alignment: .leading, spacing: 4) {
+                // Distance
+                Text(distance)
+                    .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.white)
-                    .frame(width: 50)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    // Distance
-                    Text(distance)
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(.white)
-
-                    // Street name in cyan
-                    Text(instruction.isEmpty ? "Follow the route" : instruction)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(AppColors.accent)
-                        .lineLimit(1)
-                }
+                // Street name in cyan
+                Text(instruction.isEmpty ? "Follow the route" : instruction)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppColors.accent)
+                    .lineLimit(2)
             }
 
-            // "and then" next instruction (if available)
-            if let nextInstruction = nextInstruction, let nextManeuver = nextManeuverType {
-                HStack(spacing: 8) {
-                    Text("and then")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(AppColors.textSecondary)
-
-                    Image(systemName: nextManeuver.iconName)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-                .padding(.leading, 64)
-            }
+            Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity)
+        .frame(height: 115)
         .background(AppColors.backgroundSecondary.opacity(0.95))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
-// MARK: - Face Camera Card (Compact Waze Style)
+// MARK: - Face Camera Card (Waze Style)
 struct FaceCameraCard: View {
     @ObservedObject var eyeState: EyeTrackingState
 
     var body: some View {
         ZStack {
             ARFaceTrackingView(eyeState: eyeState)
-                .frame(width: 90, height: 90)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .frame(width: 115, height: 115)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-            // Status indicator dot
-            VStack {
-                HStack {
-                    Spacer()
-                    Circle()
-                        .fill(eyeState.isCalibrated ? AppColors.success : AppColors.warning)
-                        .frame(width: 10, height: 10)
-                        .shadow(color: (eyeState.isCalibrated ? AppColors.success : AppColors.warning).opacity(0.6), radius: 4)
+            // Position indicator (moves based on head position)
+            if eyeState.isCalibrated {
+                VStack {
+                    HStack {
+                        Spacer()
+                        PositionIndicatorView(
+                            offsetX: CGFloat(eyeState.noseOffsetX),
+                            offsetY: CGFloat(eyeState.noseOffsetY)
+                        )
                         .padding(6)
+                    }
+                    Spacer()
                 }
-                Spacer()
+            } else {
+                // Static warning dot when not calibrated
+                VStack {
+                    HStack {
+                        Spacer()
+                        Circle()
+                            .fill(AppColors.warning)
+                            .frame(width: 12, height: 12)
+                            .shadow(color: AppColors.warning.opacity(0.6), radius: 4)
+                            .padding(8)
+                    }
+                    Spacer()
+                }
             }
         }
-        .frame(width: 90, height: 90)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .frame(width: 115, height: 115)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(AppColors.backgroundCard, lineWidth: 3)
         )
         .shadow(color: Color.black.opacity(0.3), radius: 8, y: 4)
@@ -558,55 +574,54 @@ struct NavigationBottomBar: View {
 
     @State private var isExpanded = false
 
-    private var statusColor: Color {
-        guard baselineBlinkRate > 0, currentBlinkRate > 0 else { return AppColors.success }
-        let deviation = abs(currentBlinkRate - baselineBlinkRate) / baselineBlinkRate
-        if deviation < 0.3 { return AppColors.success }
-        else if deviation < 0.5 { return AppColors.warning }
-        else { return AppColors.error }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            // Collapsed bar (always visible)
-            Button(action: { withAnimation(.spring(response: 0.3)) { isExpanded.toggle() } }) {
-                HStack(spacing: 0) {
-                    // Search icon
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(AppColors.textSecondary)
-                        .frame(width: 50)
+            // Handle bar at top
+            Capsule()
+                .fill(AppColors.textMuted)
+                .frame(width: 40, height: 5)
+                .padding(.top, 10)
+                .padding(.bottom, 14)
 
-                    Spacer()
+            // Main bar content
+            HStack {
+                // Search icon with gray circle
+                Button(action: { withAnimation(.spring(response: 0.3)) { isExpanded.toggle() } }) {
+                    ZStack {
+                        Circle()
+                            .fill(AppColors.backgroundCard)
+                            .frame(width: 52, height: 52)
 
-                    // ETA and time/distance
-                    VStack(spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text(eta)
-                                .font(.system(size: 22, weight: .bold))
-                                .foregroundColor(.white)
-
-                            Image(systemName: "speaker.wave.2.fill")
-                                .font(.system(size: 14))
-                                .foregroundColor(AppColors.textSecondary)
-                        }
-
-                        Text("\(time) · \(distance)")
-                            .font(.system(size: 13, weight: .medium))
+                        Image("search")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 26, height: 26)
                             .foregroundColor(AppColors.textSecondary)
                     }
-
-                    Spacer()
-
-                    // Filter/options icon
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(AppColors.textSecondary)
-                        .frame(width: 50)
                 }
-                .padding(.vertical, 14)
+                .padding(.leading, 20)
+
+                Spacer()
+
+                // ETA and time/distance - bigger and white
+                VStack(spacing: 6) {
+                    Text(eta)
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(.white)
+
+                    Text("\(time) · \(distance)")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+
+                Spacer()
+
+                // Balance spacer
+                Color.clear
+                    .frame(width: 52, height: 52)
+                    .padding(.trailing, 20)
             }
-            .buttonStyle(PlainButtonStyle())
+            .padding(.bottom, 8)
 
             if isExpanded {
                 // Expanded content
@@ -619,71 +634,18 @@ struct NavigationBottomBar: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 20)
 
-                    // Progress line
-                    HStack(spacing: 0) {
-                        // Waze icon (start)
-                        Circle()
-                            .fill(AppColors.accent)
-                            .frame(width: 24, height: 24)
-                            .overlay(
-                                Image(systemName: "car.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.black)
-                            )
-
-                        // Progress line
-                        Rectangle()
-                            .fill(AppColors.textMuted)
-                            .frame(height: 3)
-
-                        // Destination pin
-                        Circle()
-                            .fill(AppColors.error)
-                            .frame(width: 20, height: 20)
-                            .overlay(
-                                Circle()
-                                    .fill(.white)
-                                    .frame(width: 8, height: 8)
-                            )
-                    }
-                    .padding(.horizontal, 40)
-
-                    // Quick actions
+                    // Stop and Resume buttons - Stop smaller width, same height
                     HStack(spacing: 12) {
-                        QuickActionButton(icon: "p.circle.fill", label: "Parking")
-                        QuickActionButton(icon: "fuelpump.fill", label: "Gas")
-                        QuickActionButton(icon: "fork.knife", label: "Food")
-                        QuickActionButton(icon: "magnifyingglass", label: "Search")
-                    }
-                    .padding(.horizontal, 16)
-
-                    // Companion button
-                    Button(action: onCompanion) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "waveform")
-                                .font(.system(size: 16, weight: .medium))
-                            Text("Companion Mode")
-                                .font(.system(size: 15, weight: .medium))
-                        }
-                        .foregroundColor(AppColors.textSecondary)
-                    }
-
-                    // Stop and Resume buttons
-                    HStack(spacing: 12) {
-                        // Stop button
                         Button(action: onEndTrip) {
                             Text("Stop")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(AppColors.error)
-                                .frame(maxWidth: .infinity)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(width: 100)
                                 .padding(.vertical, 16)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 28)
-                                        .stroke(AppColors.error, lineWidth: 2)
-                                )
+                                .background(AppColors.error.opacity(0.8))
+                                .clipShape(RoundedRectangle(cornerRadius: 28))
                         }
 
-                        // Resume/Recenter button
                         Button(action: onRecenter) {
                             Text("Resume")
                                 .font(.system(size: 16, weight: .semibold))
@@ -699,7 +661,7 @@ struct NavigationBottomBar: View {
                 .padding(.bottom, 20)
             }
         }
-        .padding(.bottom, 34)
+        .padding(.bottom, 16)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(AppColors.backgroundSecondary)
@@ -1311,14 +1273,14 @@ struct SpeedDisplayView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            // Speed circle (Waze style)
+            // Speed circle (Waze style - gray with black border)
             ZStack {
                 Circle()
-                    .fill(AppColors.backgroundCard)
+                    .fill(Color(white: 0.35))
                     .frame(width: 70, height: 70)
 
                 Circle()
-                    .stroke(isOverSpeed ? AppColors.error : AppColors.backgroundCard, lineWidth: 3)
+                    .stroke(isOverSpeed ? AppColors.error : Color.black, lineWidth: 5)
                     .frame(width: 70, height: 70)
 
                 VStack(spacing: 0) {
@@ -1328,7 +1290,7 @@ struct SpeedDisplayView: View {
 
                     Text("km/h")
                         .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(AppColors.textSecondary)
+                        .foregroundColor(.white.opacity(0.7))
                 }
             }
             .shadow(color: Color.black.opacity(0.4), radius: 8, y: 4)
