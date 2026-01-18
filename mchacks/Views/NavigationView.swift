@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreLocation
+import AVFoundation
 
 // MARK: - Trip Data (captures metrics at trip end)
 struct TripData {
@@ -45,6 +46,7 @@ struct MainNavigationView: View {
     @State private var showQuickRestStop = false
     @State private var restStopReason = ""
     @State private var lastFatigueAlertLevel: FatigueLevel = .normal
+    @State private var restStopAudioPlayer: AVAudioPlayer?
 
     var body: some View {
         ZStack {
@@ -256,17 +258,24 @@ struct MainNavigationView: View {
             tripAlertCount += 1
         }
         // MARK: - Hybrid Fatigue Level Monitoring
-        // Monitor FatigueTracker's level for rest stop suggestions
+        // Monitor FatigueTracker's level for rest stop suggestions and emergency calls
         .onReceive(eyeState.fatigueTracker.metrics.$fatigueLevel) { newLevel in
-            // Only suggest rest stop when navigating and level escalates to Moderate+
+            // Only act when navigating and level escalates
             if navigationManager.isNavigating &&
                newLevel.shouldAlert &&
                lastFatigueAlertLevel.alertPriority < newLevel.alertPriority {
-                // Show rest stop suggestion at Moderate or higher
-                if newLevel == .moderate || newLevel == .high {
+
+                if newLevel == .critical {
+                    // CRITICAL: Trigger emergency call (most severe intervention)
+                    print("🚨 [Fatigue] CRITICAL level reached - triggering emergency call")
+                    NotificationCenter.default.post(name: NSNotification.Name("TriggerEmergencyCall"), object: nil)
+                } else if newLevel == .moderate || newLevel == .high {
+                    // MODERATE/HIGH: Show rest stop suggestion
                     restStopReason = "fatigue_\(newLevel.rawValue)"
                     showQuickRestStop = true
+                    playRestStopAudio()
                 }
+
                 lastFatigueAlertLevel = newLevel
             }
         }
@@ -366,6 +375,22 @@ struct MainNavigationView: View {
         eyeState.blinkCount = 0
         lastFatigueAlertLevel = .normal
         NotificationCenter.default.post(name: NSNotification.Name("ResetCalibration"), object: nil)
+    }
+
+    private func playRestStopAudio() {
+        guard let url = Bundle.main.url(forResource: "RestStopSuggestion", withExtension: "mp3") else {
+            print("⚠️ [RestStop] Audio file not found: RestStopSuggestion.mp3")
+            return
+        }
+
+        do {
+            restStopAudioPlayer = try AVAudioPlayer(contentsOf: url)
+            restStopAudioPlayer?.volume = 1.0
+            restStopAudioPlayer?.play()
+            print("🔊 [RestStop] Playing rest stop suggestion audio")
+        } catch {
+            print("⚠️ [RestStop] Failed to play audio: \(error)")
+        }
     }
 }
 
