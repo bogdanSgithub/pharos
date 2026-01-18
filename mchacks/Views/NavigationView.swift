@@ -48,6 +48,7 @@ struct MainNavigationView: View {
     @State private var showQuickRestStop = false
     @State private var restStopReason = ""
     @State private var restStopAudioPlayer: AVAudioPlayer?
+    @State private var lastFatigueAlertLevel: FatigueLevel = .normal
 
     var body: some View {
         ZStack {
@@ -296,8 +297,7 @@ struct MainNavigationView: View {
                 }
 
                 lastFatigueAlertLevel = newLevel
-            print("🔔 [Alert] Count: \(tripAlertCount)")
-            // Note: 13th alert emergency is handled in ARFaceTrackingView.playAlert()
+            }
         }
         // Listen for 8th alert specifically (pit stop trigger - no regular audio)
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("PitStopAlertTriggered"))) { _ in
