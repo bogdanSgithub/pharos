@@ -73,6 +73,10 @@ class NavigationManager: ObservableObject {
     private var destinationCoordinate: CLLocationCoordinate2D?
     private let directions: Directions
 
+    // Store original route metrics for accurate ETA
+    private var totalRouteDistance: CLLocationDistance = 0
+    private var totalRouteTime: TimeInterval = 0
+
     // Speed limit data
     private var segmentSpeedLimits: [Measurement<UnitSpeed>?] = []
     private var segmentDistances: [CLLocationDistance] = []
@@ -115,6 +119,10 @@ class NavigationManager: ObservableObject {
                         self.routeCoordinates = shape.coordinates
                         self.distanceRemaining = route.distance
                         self.timeRemaining = route.expectedTravelTime
+
+                        // Store original route metrics for accurate ETA calculation
+                        self.totalRouteDistance = route.distance
+                        self.totalRouteTime = route.expectedTravelTime
 
                         // Store all steps
                         self.routeSteps = route.legs.flatMap { $0.steps }
@@ -169,6 +177,8 @@ class NavigationManager: ObservableObject {
         currentInstruction = ""
         distanceRemaining = 0
         timeRemaining = 0
+        totalRouteDistance = 0
+        totalRouteTime = 0
         currentStepInstruction = ""
         distanceToNextManeuver = 0
         destinationCoordinate = nil
@@ -205,9 +215,17 @@ class NavigationManager: ObservableObject {
         // Calculate remaining distance along route
         distanceRemaining = calculateRemainingDistance(from: closestIndex, along: routeCoords, userCoord: userCoord)
 
-        // Estimate time based on current speed or average
-        let speed = location.speed > 0 ? location.speed : 13.4 // ~30 mph default
-        timeRemaining = distanceRemaining / speed
+        // Calculate remaining time using route's expected travel time (accounts for traffic & road conditions)
+        // Uses ratio of remaining distance to total distance, applied to route's expectedTravelTime
+        if totalRouteDistance > 0 {
+            let progressRatio = 1.0 - (distanceRemaining / totalRouteDistance)
+            let elapsedTime = totalRouteTime * progressRatio
+            timeRemaining = max(0, totalRouteTime - elapsedTime)
+        } else {
+            // Fallback to speed-based calculation if route data unavailable
+            let speed = location.speed > 0 ? location.speed : 13.4
+            timeRemaining = distanceRemaining / speed
+        }
 
         // Update current step instruction
         updateCurrentStep(userCoord: userCoord, closestRouteIndex: closestIndex)

@@ -90,7 +90,7 @@ struct MapboxMapView: UIViewRepresentable {
             if !context.coordinator.wasNavigating {
                 let camera = CameraOptions(
                     center: location.coordinate,
-                    zoom: 18,
+                    zoom: 14,
                     bearing: location.course >= 0 ? location.course : 0,
                     pitch: 45
                 )
@@ -100,7 +100,7 @@ struct MapboxMapView: UIViewRepresentable {
             } else {
                 let camera = CameraOptions(
                     center: location.coordinate,
-                    zoom: 18,
+                    zoom: 14,
                     bearing: location.course >= 0 ? location.course : nil,
                     pitch: 45
                 )
@@ -115,7 +115,7 @@ struct MapboxMapView: UIViewRepresentable {
         if shouldRecenter, let location = userLocation {
             let camera = CameraOptions(
                 center: location.coordinate,
-                zoom: isNavigating ? 18 : 16,
+                zoom: 14,
                 bearing: isNavigating && location.course >= 0 ? location.course : 0,
                 pitch: isNavigating ? 45 : 15
             )
